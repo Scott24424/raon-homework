@@ -15,12 +15,22 @@ const SEMESTER_SUBJECTS = [
   "Etc.",
 ];
 
-export default function SemesterPage() {
+const VACATION_SUBJECTS = [
+  "리딩로그(썸머숙제)",
+  "아라쌤 영어숙제",
+  "엘리카 영어숙제",
+  "뿌리깊은국어",
+  "원리셈",
+  "최상위s",
+  "플라토",
+  "1031",
+];
+
+export default function Home() {
   return (
     <HomeworkTracker 
-      title="Raon Kwon's Homework" 
-      subjects={SEMESTER_SUBJECTS} 
-      mode="semester" 
+      semesterSubjects={SEMESTER_SUBJECTS} 
+      vacationSubjects={VACATION_SUBJECTS} 
     />
   );
 }
