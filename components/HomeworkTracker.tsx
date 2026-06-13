@@ -18,6 +18,8 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   const [records, setRecords] = useState<Record<string, Record<string, string>>>({});
   const [isLoading, setIsLoading] = useState(true);
 
+  const [debugMsg, setDebugMsg] = useState("");
+
   const subjects = mode === "semester" ? semesterSubjects : vacationSubjects;
   const title = mode === "semester" ? "Raon Kwon's Homework" : "Raon's Vacation Homework";
 
@@ -36,6 +38,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
     async function loadData() {
       setIsLoading(true);
       const data = await getWeekRecords(formattedWeekStart);
+      setDebugMsg(`Loaded ${data.length} records for ${formattedWeekStart}.`);
       
       const newRecords: Record<string, Record<string, string>> = {};
       
@@ -224,6 +227,12 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
             </tbody>
           </table>
         </div>
+
+        {debugMsg && (
+          <div className="p-2 text-xs text-slate-400 border-t border-slate-100 bg-slate-50 text-center font-mono">
+            {debugMsg}
+          </div>
+        )}
       </div>
     </main>
   );
