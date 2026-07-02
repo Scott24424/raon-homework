@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { startOfWeek, endOfWeek, addWeeks, subWeeks, format } from "date-fns";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getWeekRecords, updateRecord, HomeworkRecord } from "@/app/actions";
 
@@ -15,10 +15,12 @@ interface HomeworkTrackerProps {
 export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: HomeworkTrackerProps) {
   const [mode, setMode] = useState<"semester" | "vacation">("semester");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [records, setRecords] = useState<Record<string, Record<string, string>>>({});
+  const [weekCache, setWeekCache] = useState<Record<string, Record<string, Record<string, string>>>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   const [debugMsg, setDebugMsg] = useState("");
+
+  const fetchedWeeksRef = useRef<Set<string>>(new Set());
 
   const subjects = mode === "semester" ? semesterSubjects : vacationSubjects;
   const title = mode === "semester" ? "Raon Kwon's Homework" : "Raon's Vacation Homework";
@@ -30,48 +32,95 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   const formattedWeekStart = format(weekStart, "yyyy-MM-dd");
   const displayDateRange = `${format(weekStart, "MMM d, yyyy")} - ${format(weekEnd, "MMM d, yyyy")}`;
 
-  // Use a stable reference for all subjects to avoid unnecessary effect re-runs
+  // Use a stable reference for all subjects
   const allSubjects = useMemo(() => [...semesterSubjects, ...vacationSubjects], [semesterSubjects, vacationSubjects]);
 
-  // Fetch data for the current week for ALL subjects at once
-  useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      const data = await getWeekRecords(formattedWeekStart);
-      setDebugMsg(`Loaded ${data.length} records for ${formattedWeekStart}.`);
-      
-      const newRecords: Record<string, Record<string, string>> = {};
-      
-      // Initialize default empty strings for ALL subjects
-      allSubjects.forEach((subject) => {
-        if (!newRecords[subject]) {
-          newRecords[subject] = {};
-          DAYS.forEach((day) => {
-            newRecords[subject][day] = ""; // Default
-          });
-        }
-      });
-
-      data.forEach((record: HomeworkRecord) => {
-        if (newRecords[record.subject]) {
-          newRecords[record.subject][record.day] = record.status;
-        }
-      });
-
-      setRecords(newRecords);
-      setIsLoading(false);
+  const currentWeekRecords = useMemo(() => {
+    if (weekCache[formattedWeekStart]) {
+      return weekCache[formattedWeekStart];
     }
+    const defaults: Record<string, Record<string, string>> = {};
+    allSubjects.forEach(sub => {
+      defaults[sub] = {};
+      DAYS.forEach(day => defaults[sub][day] = "");
+    });
+    return defaults;
+  }, [weekCache, formattedWeekStart, allSubjects]);
 
-    loadData();
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchAndCacheWeek = async (weekStr: string, isBackground: boolean = false) => {
+      if (fetchedWeeksRef.current.has(weekStr)) {
+        if (!isBackground) setIsLoading(false);
+        return;
+      }
+      
+      fetchedWeeksRef.current.add(weekStr);
+      if (!isBackground) setIsLoading(true);
+
+      try {
+        const data = await getWeekRecords(weekStr);
+        if (!mounted) return;
+        
+        if (!isBackground) setDebugMsg(`Loaded ${data.length} records for ${weekStr}.`);
+        
+        const newRecords: Record<string, Record<string, string>> = {};
+        allSubjects.forEach((subject) => {
+          newRecords[subject] = {};
+          DAYS.forEach((day) => { newRecords[subject][day] = ""; });
+        });
+
+        data.forEach((record: HomeworkRecord) => {
+          if (newRecords[record.subject]) {
+            newRecords[record.subject][record.day] = record.status;
+          }
+        });
+
+        setWeekCache(prev => {
+          const existing = prev[weekStr];
+          if (existing) {
+            const merged = { ...newRecords };
+            for (const sub of Object.keys(existing)) {
+              if (!merged[sub]) merged[sub] = {};
+              for (const day of Object.keys(existing[sub])) {
+                if (existing[sub][day] !== "") merged[sub][day] = existing[sub][day];
+              }
+            }
+            return { ...prev, [weekStr]: merged };
+          }
+          return { ...prev, [weekStr]: newRecords };
+        });
+      } catch (err) {
+        console.error(err);
+        fetchedWeeksRef.current.delete(weekStr);
+      } finally {
+        if (!isBackground && mounted) setIsLoading(false);
+      }
+    };
+
+    // Load current week
+    fetchAndCacheWeek(formattedWeekStart, false).then(() => {
+      if (!mounted) return;
+      // Prefetch adjacent weeks
+      const currentParsed = parseISO(formattedWeekStart);
+      const nextW = format(addWeeks(currentParsed, 1), "yyyy-MM-dd");
+      const prevW = format(subWeeks(currentParsed, 1), "yyyy-MM-dd");
+      
+      fetchAndCacheWeek(nextW, true);
+      fetchAndCacheWeek(prevW, true);
+    });
+
+    return () => {
+      mounted = false;
+    };
   }, [formattedWeekStart, allSubjects]);
 
   const handlePrevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
   const handleNextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
 
-  const handleCellClick = async (subject: string, day: string) => {
-    if (isLoading) return;
-
-    const currentState = records[subject][day] ?? "";
+  const handleCellClick = (subject: string, day: string) => {
+    const currentState = currentWeekRecords[subject][day] ?? "";
     let nextState = "-";
     if (currentState === "") nextState = "-";
     else if (currentState === "-") nextState = "△";
@@ -80,20 +129,28 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
     else if (currentState === "X") nextState = "";
 
     // Optimistic UI update
-    setRecords((prev) => ({
-      ...prev,
-      [subject]: {
-        ...prev[subject],
-        [day]: nextState,
-      },
-    }));
+    setWeekCache((prev) => {
+      const weekData = prev[formattedWeekStart] || currentWeekRecords;
+      return {
+        ...prev,
+        [formattedWeekStart]: {
+          ...weekData,
+          [subject]: {
+            ...weekData[subject],
+            [day]: nextState,
+          },
+        },
+      };
+    });
 
-    // Auto-save to DB
-    await updateRecord({
+    // Auto-save to DB in background without awaiting
+    updateRecord({
       week_start_date: formattedWeekStart,
       subject,
       day,
       status: nextState,
+    }).catch(err => {
+      console.error("Failed to update record:", err);
     });
   };
 
@@ -128,7 +185,6 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
 
   return (
     <main className={`min-h-screen ${themeClasses.bgLight} p-2 md:p-3 font-sans transition-colors duration-300`}>
-      {/* Navigation Tabs - No Link for instant mode switch */}
       <div className="max-w-7xl mx-auto mb-2 flex justify-center gap-4">
         <button 
           onClick={() => setMode("semester")}
@@ -149,7 +205,6 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
       </div>
 
       <div className="max-w-7xl mx-auto bg-white rounded-xl shadow-xl overflow-hidden border border-slate-100">
-        {/* Header */}
         <header className={`${themeClasses.header} text-white p-3 md:p-4 flex flex-col md:flex-row justify-between items-center gap-3 transition-colors duration-300`}>
           <h1 className="text-xl md:text-2xl font-bold tracking-tight">{title}</h1>
           
@@ -174,7 +229,6 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
           </div>
         </header>
 
-        {/* Main Table Container */}
         <div className="p-2 md:p-4 overflow-x-auto">
           <table className="w-full border-collapse min-w-[600px] md:min-w-[800px]">
             <thead>
@@ -209,7 +263,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
                     <td key={day} className="p-1 md:p-2 h-10 md:h-12">
                       <div 
                         onClick={() => handleCellClick(subject, day)}
-                        className={getCellClasses(records[subject]?.[day] ?? "")}
+                        className={getCellClasses(currentWeekRecords[subject]?.[day] ?? "")}
                         role="button"
                         tabIndex={0}
                         onKeyDown={(e) => {
@@ -218,7 +272,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
                           }
                         }}
                       >
-                        {records[subject]?.[day] ?? ""}
+                        {currentWeekRecords[subject]?.[day] ?? ""}
                       </div>
                     </td>
                   ))}
