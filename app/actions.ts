@@ -32,17 +32,40 @@ export async function updateRecord(record: HomeworkRecord): Promise<{ success: b
   try {
     const { week_start_date, subject, day, status } = record;
     
-    // UPSERT
-    const { error } = await supabase
+    // Check if record exists instead of upserting (bypasses unique constraint requirement)
+    const { data: existing, error: selectError } = await supabase
       .from("homework_records")
-      .upsert(
-        { week_start_date, subject, day, status },
-        { onConflict: 'week_start_date,subject,day' }
-      );
-      
-    if (error) {
-      console.error("Error updating record in Supabase:", error);
+      .select("status")
+      .eq("week_start_date", week_start_date)
+      .eq("subject", subject)
+      .eq("day", day);
+
+    if (selectError) {
+      console.error("Error selecting record from Supabase:", selectError);
       return { success: false };
+    }
+
+    if (existing && existing.length > 0) {
+      const { error: updateError } = await supabase
+        .from("homework_records")
+        .update({ status })
+        .eq("week_start_date", week_start_date)
+        .eq("subject", subject)
+        .eq("day", day);
+        
+      if (updateError) {
+        console.error("Error updating record in Supabase:", updateError);
+        return { success: false };
+      }
+    } else {
+      const { error: insertError } = await supabase
+        .from("homework_records")
+        .insert({ week_start_date, subject, day, status });
+        
+      if (insertError) {
+        console.error("Error inserting record into Supabase:", insertError);
+        return { success: false };
+      }
     }
     
     return { success: true };

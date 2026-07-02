@@ -17,10 +17,31 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [weekCache, setWeekCache] = useState<Record<string, Record<string, Record<string, string>>>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isClient, setIsClient] = useState(false);
 
   const [debugMsg, setDebugMsg] = useState("");
 
   const fetchedWeeksRef = useRef<Set<string>>(new Set());
+  const weekCacheRef = useRef(weekCache);
+
+  useEffect(() => {
+    setIsClient(true);
+    const cached = localStorage.getItem("homeworkTrackerCache");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setWeekCache(parsed);
+        weekCacheRef.current = parsed;
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    weekCacheRef.current = weekCache;
+    if (isClient) {
+      localStorage.setItem("homeworkTrackerCache", JSON.stringify(weekCache));
+    }
+  }, [weekCache, isClient]);
 
   const subjects = mode === "semester" ? semesterSubjects : vacationSubjects;
   const title = mode === "semester" ? "Raon Kwon's Homework" : "Raon's Vacation Homework";
@@ -48,6 +69,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   }, [weekCache, formattedWeekStart, allSubjects]);
 
   useEffect(() => {
+    if (!isClient) return;
     let mounted = true;
 
     const fetchAndCacheWeek = async (weekStr: string, isBackground: boolean = false) => {
@@ -57,7 +79,13 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
       }
       
       fetchedWeeksRef.current.add(weekStr);
-      if (!isBackground) setIsLoading(true);
+      
+      const hasLocalCache = !!weekCacheRef.current[weekStr];
+      if (!isBackground && !hasLocalCache) {
+        setIsLoading(true);
+      } else if (!isBackground) {
+        setIsLoading(false);
+      }
 
       try {
         const data = await getWeekRecords(weekStr);
@@ -95,7 +123,9 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
         console.error(err);
         fetchedWeeksRef.current.delete(weekStr);
       } finally {
-        if (!isBackground && mounted) setIsLoading(false);
+        if (!isBackground && mounted && !hasLocalCache) {
+          setIsLoading(false);
+        }
       }
     };
 
@@ -114,7 +144,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
     return () => {
       mounted = false;
     };
-  }, [formattedWeekStart, allSubjects]);
+  }, [formattedWeekStart, allSubjects, isClient]);
 
   const handlePrevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
   const handleNextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
