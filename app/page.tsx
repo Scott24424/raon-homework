@@ -21,9 +21,9 @@ const VACATION_SUBJECTS = [
   "엘리카 영어숙제",
   "뿌리깊은국어",
   "원리셈",
-  "최상위s",
+  "딱풀",
   "플라토",
-  "1031",
+  "필즈",
 ];
 
 export default function Home() {
