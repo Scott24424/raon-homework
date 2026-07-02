@@ -13,7 +13,7 @@ interface HomeworkTrackerProps {
 }
 
 export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: HomeworkTrackerProps) {
-  const [mode, setMode] = useState<"semester" | "vacation">("semester");
+  const [mode, setMode] = useState<"semester" | "vacation">("vacation");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [weekCache, setWeekCache] = useState<Record<string, Record<string, Record<string, string>>>>({});
   const [isLoading, setIsLoading] = useState(true);
