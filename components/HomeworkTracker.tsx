@@ -41,14 +41,19 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
         weekCacheRef.current = parsed;
       } catch (e) {}
     }
+    const savedMode = localStorage.getItem("homeworkTrackerMode");
+    if (savedMode === "semester" || savedMode === "vacation") {
+      setMode(savedMode);
+    }
   }, []);
 
   useEffect(() => {
     weekCacheRef.current = weekCache;
     if (isClient) {
       localStorage.setItem("homeworkTrackerCache", JSON.stringify(weekCache));
+      localStorage.setItem("homeworkTrackerMode", mode);
     }
-  }, [weekCache, isClient]);
+  }, [weekCache, mode, isClient]);
 
   const subjects = mode === "semester" ? semesterSubjects : vacationSubjects;
   const title = mode === "semester" ? "Raon Kwon's Homework" : "Raon's Vacation Homework";
