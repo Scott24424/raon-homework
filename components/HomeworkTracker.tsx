@@ -3,13 +3,20 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { startOfWeek, endOfWeek, addWeeks, subWeeks, format, parseISO } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { getWeekRecords, updateRecord, HomeworkRecord } from "@/app/actions";
+import { supabase } from "@/lib/supabase";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thur", "Fri", "Sat", "Sun"];
 
 interface HomeworkTrackerProps {
   semesterSubjects: string[];
   vacationSubjects: string[];
+}
+
+interface HomeworkRecord {
+  week_start_date: string;
+  subject: string;
+  day: string;
+  status: string;
 }
 
 export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: HomeworkTrackerProps) {
@@ -88,7 +95,13 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
       }
 
       try {
-        const data = await getWeekRecords(weekStr);
+        // Query Supabase directly from client (bypasses Server Action cold-starts)
+        const { data, error } = await supabase
+          .from("homework_records")
+          .select("*")
+          .eq("week_start_date", weekStr);
+
+        if (error) throw error;
         if (!mounted) return;
         
         if (!isBackground) setDebugMsg(`Loaded ${data.length} records for ${weekStr}.`);
@@ -99,7 +112,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
           DAYS.forEach((day) => { newRecords[subject][day] = ""; });
         });
 
-        data.forEach((record: HomeworkRecord) => {
+        (data as HomeworkRecord[]).forEach((record) => {
           if (newRecords[record.subject]) {
             newRecords[record.subject][record.day] = record.status;
           }
@@ -120,7 +133,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
           return { ...prev, [weekStr]: newRecords };
         });
       } catch (err) {
-        console.error(err);
+        console.error("Fetch error:", err);
         fetchedWeeksRef.current.delete(weekStr);
       } finally {
         if (!isBackground && mounted && !hasLocalCache) {
@@ -149,7 +162,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   const handlePrevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
   const handleNextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
 
-  const handleCellClick = (subject: string, day: string) => {
+  const handleCellClick = async (subject: string, day: string) => {
     const currentState = currentWeekRecords[subject][day] ?? "";
     let nextState = "-";
     if (currentState === "") nextState = "-";
@@ -173,15 +186,39 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
       };
     });
 
-    // Auto-save to DB in background without awaiting
-    updateRecord({
-      week_start_date: formattedWeekStart,
-      subject,
-      day,
-      status: nextState,
-    }).catch(err => {
-      console.error("Failed to update record:", err);
-    });
+    // Auto-save to DB directly from client
+    try {
+      const { data: existing, error: selectError } = await supabase
+        .from("homework_records")
+        .select("status")
+        .eq("week_start_date", formattedWeekStart)
+        .eq("subject", subject)
+        .eq("day", day);
+
+      if (selectError) throw selectError;
+
+      if (existing && existing.length > 0) {
+        const { error: updateError } = await supabase
+          .from("homework_records")
+          .update({ status: nextState })
+          .eq("week_start_date", formattedWeekStart)
+          .eq("subject", subject)
+          .eq("day", day);
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from("homework_records")
+          .insert({
+            week_start_date: formattedWeekStart,
+            subject,
+            day,
+            status: nextState
+          });
+        if (insertError) throw insertError;
+      }
+    } catch (err) {
+      console.error("Direct save error:", err);
+    }
   };
 
   const getCellClasses = (status: string) => {
