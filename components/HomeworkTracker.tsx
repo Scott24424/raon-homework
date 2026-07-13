@@ -30,9 +30,10 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
 
   const fetchedWeeksRef = useRef<Set<string>>(new Set());
   const weekCacheRef = useRef(weekCache);
+  const initialLoadedRef = useRef(false);
 
+  // Load from localStorage on mount
   useEffect(() => {
-    setIsClient(true);
     const cached = localStorage.getItem("homeworkTrackerCache");
     if (cached) {
       try {
@@ -45,11 +46,17 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
     if (savedMode === "semester" || savedMode === "vacation") {
       setMode(savedMode);
     }
+    setIsClient(true);
+    // Use setTimeout to ensure state updates are flushed before enabling saves
+    setTimeout(() => {
+      initialLoadedRef.current = true;
+    }, 0);
   }, []);
 
+  // Save to localStorage
   useEffect(() => {
     weekCacheRef.current = weekCache;
-    if (isClient) {
+    if (isClient && initialLoadedRef.current) {
       localStorage.setItem("homeworkTrackerCache", JSON.stringify(weekCache));
       localStorage.setItem("homeworkTrackerMode", mode);
     }
@@ -100,7 +107,6 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
       }
 
       try {
-        // Query Supabase directly from client (bypasses Server Action cold-starts)
         const { data, error } = await supabase
           .from("homework_records")
           .select("*")
@@ -141,7 +147,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
         console.error("Fetch error:", err);
         fetchedWeeksRef.current.delete(weekStr);
       } finally {
-        if (!isBackground && mounted && !hasLocalCache) {
+        if (!isBackground && mounted) {
           setIsLoading(false);
         }
       }
@@ -288,8 +294,11 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
             >
               <ChevronLeft size={20} />
             </button>
-            <span className="px-3 md:px-4 font-medium text-sm md:text-base min-w-[200px] text-center">
+            <span className="px-3 md:px-4 font-medium text-sm md:text-base min-w-[220px] text-center flex items-center justify-center gap-2">
               {displayDateRange}
+              {isLoading && (
+                <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent inline-block"></span>
+              )}
             </span>
             <button 
               onClick={handleNextWeek}
@@ -315,14 +324,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
                 ))}
               </tr>
             </thead>
-            <tbody className="relative">
-              {isLoading && (
-                <tr>
-                  <td colSpan={8} className="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center min-h-[400px]">
-                    <div className={`animate-spin rounded-full h-10 w-10 border-b-2 ${themeClasses.spinner}`}></div>
-                  </td>
-                </tr>
-              )}
+            <tbody>
               {subjects.map((subject, index) => (
                 <tr 
                   key={subject} 
