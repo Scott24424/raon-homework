@@ -32,8 +32,11 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   const weekCacheRef = useRef(weekCache);
   const initialLoadedRef = useRef(false);
 
-  // Load from localStorage on mount
+  // Load cache from localStorage and sync settings from DB on mount
   useEffect(() => {
+    setIsClient(true);
+    
+    // 1. Fast restore from localStorage cache for instant UI
     const cached = localStorage.getItem("homeworkTrackerCache");
     if (cached) {
       try {
@@ -46,14 +49,35 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
     if (savedMode === "semester" || savedMode === "vacation") {
       setMode(savedMode);
     }
-    setIsClient(true);
-    // Use setTimeout to ensure state updates are flushed before enabling saves
+    
+    // 2. Fetch the global active tab mode from DB to sync across all devices
+    async function loadGlobalSettings() {
+      try {
+        const { data, error } = await supabase
+          .from("homework_records")
+          .select("status")
+          .eq("week_start_date", "settings")
+          .eq("subject", "active_mode")
+          .eq("day", "global")
+          .maybeSingle();
+        
+        if (data && (data.status === "semester" || data.status === "vacation")) {
+          setMode(data.status as "semester" | "vacation");
+          localStorage.setItem("homeworkTrackerMode", data.status);
+        }
+      } catch (e) {
+        console.error("Failed to load global settings:", e);
+      }
+    }
+    
+    loadGlobalSettings();
+    
     setTimeout(() => {
       initialLoadedRef.current = true;
     }, 0);
   }, []);
 
-  // Save to localStorage
+  // Save cache to localStorage
   useEffect(() => {
     weekCacheRef.current = weekCache;
     if (isClient && initialLoadedRef.current) {
@@ -173,6 +197,41 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   const handlePrevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
   const handleNextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
 
+  // Change tab mode and sync globally to database
+  const handleModeChange = async (newMode: "semester" | "vacation") => {
+    setMode(newMode);
+    localStorage.setItem("homeworkTrackerMode", newMode);
+
+    try {
+      const { data: existing } = await supabase
+        .from("homework_records")
+        .select("status")
+        .eq("week_start_date", "settings")
+        .eq("subject", "active_mode")
+        .eq("day", "global");
+
+      if (existing && existing.length > 0) {
+        await supabase
+          .from("homework_records")
+          .update({ status: newMode })
+          .eq("week_start_date", "settings")
+          .eq("subject", "active_mode")
+          .eq("day", "global");
+      } else {
+        await supabase
+          .from("homework_records")
+          .insert({
+            week_start_date: "settings",
+            subject: "active_mode",
+            day: "global",
+            status: newMode
+          });
+      }
+    } catch (e) {
+      console.error("Failed to save global active mode:", e);
+    }
+  };
+
   const handleCellClick = async (subject: string, day: string) => {
     const currentState = currentWeekRecords[subject][day] ?? "";
     let nextState = "-";
@@ -265,7 +324,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
     <main className={`min-h-screen ${themeClasses.bgLight} p-2 md:p-3 font-sans transition-colors duration-300`}>
       <div className="max-w-7xl mx-auto mb-2 flex justify-center gap-4">
         <button 
-          onClick={() => setMode("semester")}
+          onClick={() => handleModeChange("semester")}
           className={`px-6 py-2 rounded-full font-bold transition-all duration-300 ${
             mode === 'semester' ? themeClasses.activeTab : themeClasses.inactiveTab
           }`}
@@ -273,7 +332,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
           학기 중
         </button>
         <button 
-          onClick={() => setMode("vacation")}
+          onClick={() => handleModeChange("vacation")}
           className={`px-6 py-2 rounded-full font-bold transition-all duration-300 ${
             mode === 'vacation' ? themeClasses.activeTab : themeClasses.inactiveTab
           }`}
