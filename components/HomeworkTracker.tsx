@@ -44,6 +44,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
         let id = localStorage.getItem("homeworkTrackerDeviceId");
         if (!id) {
           id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'dev-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+          id = id.substring(0, 20); // Truncate to ensure it fits in varchar
           localStorage.setItem("homeworkTrackerDeviceId", id);
         }
         setDeviceId(id);
@@ -51,7 +52,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
         const { data, error } = await supabase
           .from("homework_records")
           .select("status")
-          .eq("week_start_date", "device_registration")
+          .eq("week_start_date", "devices")
           .eq("subject", id)
           .maybeSingle();
 
@@ -66,15 +67,24 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
         } else {
           // Register device
           const userAgent = window.navigator.userAgent;
-          await supabase
+          const shortAgent = userAgent.substring(0, 20); // Keep it short to avoid varchar limits
+          const { error: insertError } = await supabase
             .from("homework_records")
             .insert({
-              week_start_date: "device_registration",
+              week_start_date: "devices",
               subject: id,
-              day: userAgent.substring(0, 100),
+              day: shortAgent,
               status: "pending"
             });
-          setDeviceStatus("pending");
+            
+          if (insertError) {
+             console.error("Device Insert Error:", insertError);
+             setDeviceStatus("pending"); // Still show pending, but we know it failed
+             // Force showing the error in deviceId for debugging if it failed
+             setDeviceId(id + " (Error: " + insertError.message + ")");
+          } else {
+             setDeviceStatus("pending");
+          }
         }
       } catch (err) {
         console.error("Failed device check", err);

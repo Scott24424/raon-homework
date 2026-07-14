@@ -82,7 +82,7 @@ export async function getDevices() {
     const { data, error } = await supabase
       .from("homework_records")
       .select("*")
-      .eq("week_start_date", "device_registration")
+      .eq("week_start_date", "devices")
       .order("subject", { ascending: true }); // ordering by id for stable view
 
     if (error) {
@@ -102,7 +102,7 @@ export async function updateDeviceStatus(deviceId: string, status: "approved" | 
     const { error } = await supabase
       .from("homework_records")
       .update({ status })
-      .eq("week_start_date", "device_registration")
+      .eq("week_start_date", "devices")
       .eq("subject", deviceId);
       
     if (error) {
@@ -121,7 +121,7 @@ export async function deleteDevice(deviceId: string) {
     const { error } = await supabase
       .from("homework_records")
       .delete()
-      .eq("week_start_date", "device_registration")
+      .eq("week_start_date", "devices")
       .eq("subject", deviceId);
       
     if (error) {
