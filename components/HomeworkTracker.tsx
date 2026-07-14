@@ -42,7 +42,7 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
     async function checkDeviceRegistration() {
       try {
         let id = localStorage.getItem("homeworkTrackerDeviceId");
-        if (!id) {
+        if (!id || id.length > 20) {
           id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'dev-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
           id = id.substring(0, 20); // Truncate to ensure it fits in varchar
           localStorage.setItem("homeworkTrackerDeviceId", id);
