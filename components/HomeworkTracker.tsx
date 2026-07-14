@@ -25,6 +25,8 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   const [weekCache, setWeekCache] = useState<Record<string, Record<string, Record<string, string>>>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isClient, setIsClient] = useState(false);
+  const [deviceStatus, setDeviceStatus] = useState<"checking" | "pending" | "approved" | "rejected">("checking");
+  const [deviceId, setDeviceId] = useState<string>("");
 
   const [debugMsg, setDebugMsg] = useState("");
 
@@ -35,6 +37,53 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
   // Load cache from localStorage and sync settings from DB on mount
   useEffect(() => {
     setIsClient(true);
+    
+    // --- Device Management Logic ---
+    async function checkDeviceRegistration() {
+      try {
+        let id = localStorage.getItem("homeworkTrackerDeviceId");
+        if (!id) {
+          id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'dev-' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+          localStorage.setItem("homeworkTrackerDeviceId", id);
+        }
+        setDeviceId(id);
+
+        const { data, error } = await supabase
+          .from("homework_records")
+          .select("status")
+          .eq("week_start_date", "device_registration")
+          .eq("subject", id)
+          .maybeSingle();
+
+        if (error) {
+          console.error("Device check error:", error);
+          setDeviceStatus("pending");
+          return;
+        }
+
+        if (data) {
+          setDeviceStatus(data.status as any);
+        } else {
+          // Register device
+          const userAgent = window.navigator.userAgent;
+          await supabase
+            .from("homework_records")
+            .insert({
+              week_start_date: "device_registration",
+              subject: id,
+              day: userAgent.substring(0, 100),
+              status: "pending"
+            });
+          setDeviceStatus("pending");
+        }
+      } catch (err) {
+        console.error("Failed device check", err);
+        setDeviceStatus("pending");
+      }
+    }
+    
+    checkDeviceRegistration();
+    // --- End Device Management Logic ---
     
     // 1. Fast restore from localStorage cache for instant UI
     const cached = localStorage.getItem("homeworkTrackerCache");
@@ -319,6 +368,59 @@ export default function HomeworkTracker({ semesterSubjects, vacationSubjects }: 
         inactiveTab: "bg-white text-teal-600 hover:bg-teal-50 shadow-sm border border-teal-200",
         spinner: "border-teal-600"
       };
+
+  if (deviceStatus === "checking" || !isClient) {
+    return (
+      <div className={`min-h-screen bg-slate-50 flex items-center justify-center`}>
+        <div className="animate-spin rounded-full h-8 w-8 border-4 border-slate-300 border-t-slate-800"></div>
+      </div>
+    );
+  }
+
+  if (deviceStatus === "pending") {
+    return (
+      <div className={`min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4`}>
+        <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full text-center border border-slate-100">
+          <h2 className="text-2xl font-bold text-amber-600 mb-4">승인 대기 중</h2>
+          <p className="text-slate-600 mb-6">
+            이 기기는 아직 승인되지 않았습니다.<br />
+            관리자의 승인을 기다려주세요.
+          </p>
+          <div className="text-sm text-slate-400 bg-slate-50 p-3 rounded-md overflow-hidden text-ellipsis whitespace-nowrap mb-4">
+            기기 ID: {deviceId}
+          </div>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-4 py-2 bg-slate-800 text-white rounded-md hover:bg-slate-700 transition-colors"
+          >
+            새로고침
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (deviceStatus === "rejected") {
+    return (
+      <div className={`min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4`}>
+        <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full text-center border border-slate-100">
+          <h2 className="text-2xl font-bold text-red-600 mb-4">접근 거부됨</h2>
+          <p className="text-slate-600 mb-6">
+            이 기기는 접근이 차단되었습니다.
+          </p>
+          <div className="text-sm text-slate-400 bg-slate-50 p-3 rounded-md overflow-hidden text-ellipsis whitespace-nowrap mb-4">
+            기기 ID: {deviceId}
+          </div>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-4 py-2 bg-slate-800 text-white rounded-md hover:bg-slate-700 transition-colors"
+          >
+            새로고침
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className={`min-h-screen ${themeClasses.bgLight} p-2 md:p-3 font-sans transition-colors duration-300`}>

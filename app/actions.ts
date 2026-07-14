@@ -74,3 +74,63 @@ export async function updateRecord(record: HomeworkRecord): Promise<{ success: b
     return { success: false };
   }
 }
+
+// --- Device Management Actions ---
+
+export async function getDevices() {
+  try {
+    const { data, error } = await supabase
+      .from("homework_records")
+      .select("*")
+      .eq("week_start_date", "device_registration")
+      .order("subject", { ascending: true }); // ordering by id for stable view
+
+    if (error) {
+      console.error("Error fetching devices:", error);
+      return [];
+    }
+
+    return data as HomeworkRecord[];
+  } catch (error) {
+    console.error("Unexpected error fetching devices:", error);
+    return [];
+  }
+}
+
+export async function updateDeviceStatus(deviceId: string, status: "approved" | "rejected" | "pending") {
+  try {
+    const { error } = await supabase
+      .from("homework_records")
+      .update({ status })
+      .eq("week_start_date", "device_registration")
+      .eq("subject", deviceId);
+      
+    if (error) {
+      console.error("Error updating device status:", error);
+      return { success: false };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error("Unexpected error updating device:", error);
+    return { success: false };
+  }
+}
+
+export async function deleteDevice(deviceId: string) {
+  try {
+    const { error } = await supabase
+      .from("homework_records")
+      .delete()
+      .eq("week_start_date", "device_registration")
+      .eq("subject", deviceId);
+      
+    if (error) {
+      console.error("Error deleting device:", error);
+      return { success: false };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error("Unexpected error deleting device:", error);
+    return { success: false };
+  }
+}
